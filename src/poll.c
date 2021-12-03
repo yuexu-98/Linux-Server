@@ -3,9 +3,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
-
-
+#include <poll.h>
 
 int main(){
 
@@ -22,20 +20,19 @@ int main(){
     // (3) 监听
     listen(lfd, 8);
 
-    // fd_set 集合：存放需要检测的文件描述符
-    fd_set rdset, tmp; 
-    FD_ZERO(&rdset);
-    FD_SET(lfd, &rdset);
 
-    // 初始化最大的监听文件描述符
-    int maxfd = lfd; 
+    // 初始化poll所需
+    struct pollfd fds[1024];
+    for(int i=0;i<1024;i++){
+        fds[i].fd = -1;
+        fds[i].events = POLLIN;
+    }
+    fds[0].fd = lfd;
+    int nfds = 0;
 
     while(1){
 
-        tmp = rdset;
-
-        // 调用select，使内核检测哪些文件描述符有数据
-        int ret = select(maxfd+1, &tmp, NULL, NULL, NULL);
+        int ret = poll(fds, nfds + 1, -1);
 
         if (ret == -1){
             perror("select");
@@ -44,7 +41,8 @@ int main(){
             continue;
         }else if (ret > 0){ // 检测到数据
             
-            if(FD_ISSET(lfd, &tmp)){
+            if(fds[0].revents & POLLIN){
+
                 // 新的客户端连接进来
                 struct sockaddr_in cliaddr;
                 socklen_t nAddrLen;
@@ -52,13 +50,21 @@ int main(){
                 int cfd = accept(lfd, (struct sockaddr *)&cliaddr, &nAddrLen);
 
                 // 新的文件描述符加入
-                FD_SET(cfd, &rdset);
+                for (int i = 1; i < 1024; i++){
+                    if(fds[i].fd == -1){
+                        fds[i].fd = cfd;
+                        fds[i].events = POLLIN;
+                    }
+                }
+
                 // 更新最大文件描述符
-                maxfd = maxfd > cfd ? maxfd:cfd;
+                nfds = nfds > cfd ? nfds:cfd;
             }
 
-            for(int i = lfd+1; i <= maxfd; i++){
-                if(FD_ISSET(i, &tmp)){
+            // 数据处理
+            for(int i = 1; i <= nfds; i++){
+                if(fds[i].revents & POLLIN){
+
                     char buf[1024] = {0};
                     int len = read(i, buf, sizeof(buf));
                     if (len == -1){
@@ -66,8 +72,8 @@ int main(){
                         exit(-1);
                     }else if (len==0){
                         printf("client closed ... \n");
-                        close(i);
-                        FD_CLR(i, &rdset);
+                        close(i); //先关闭
+                        fds[i].fd = -1; //置为不可用
                     }else if (len > 0){
                         printf("read buf = %s\n", buf);
                         write(i, buf, strlen(buf)+1);
