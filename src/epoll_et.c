@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <fcntl.h>
+#include <errno.h>
 
 int main(){
 
@@ -49,23 +51,46 @@ int main(){
             int curfd = epevs[i].data.fd;
 
             if (curfd == lfd){
-                // New Client
+                // New client
                 struct sockaddr_in cliaddr;
                 int len = sizeof(cliaddr);
                 int cfd = accept(lfd, (struct sockaddr *)&cliaddr, &len);
 
-                // New fd
-                epev.events = EPOLLIN;
+                // Set cfd non-block 设置文件描述符为非阻塞
+                int flag = fcntl(cfd, F_GETFL);
+                flag | O_NONBLOCK;
+                fcntl(cfd, F_SETFL, flag);
+
+                // Set new fd
+                epev.events = EPOLLIN | EPOLLET; // Edge Trigger
                 epev.data.fd = cfd;
                 epoll_ctl(epfd, EPOLL_CTL_ADD, cfd, &epev);
-
+                
             }else{
 
                 if(epevs[i].events & EPOLLOUT) {
                     continue;
-                } 
+                }
 
-                // Data Arrive
+                /* Read all data at once via loop */
+                char buf[5];
+                int len = 0;
+                while (len = read(curfd, buf, sizeof(buf)) > 0){
+                    printf("recv data : %s\n", buf);
+                    write(curfd, buf, len);
+                }
+                if(len==0){
+                    printf("Client Cloased");
+                }else if (len == -1){
+                    if(errno == EAGAIN){
+                        printf("Data over ...");
+                    }else{
+                        perror("read");
+                        exit(-1);
+                    }
+                }
+
+                /* Read data via using a buffer
                 char buf[5] = {0};
                 int len = read(curfd, buf, sizeof(buf));
 
@@ -80,6 +105,7 @@ int main(){
                     printf("read buf = %s\n", buf);
                     write(curfd, buf, strlen(buf)+1);
                 }
+                */
             }
         }
     }
