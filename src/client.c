@@ -28,8 +28,11 @@ int main() {
     int num = 0;
     
     while(1) {
+
         char sendBuf[1024] = {0};
-        sprintf(sendBuf, "send data %d", num++);
+
+        // write data from stdin
+        fgets(sendBuf, sizeof(sendBuf), stdin);
         write(fd, sendBuf, strlen(sendBuf) + 1);
 
         // 接收
@@ -44,7 +47,7 @@ int main() {
             break;
         }
         // sleep(1);
-        usleep(1000);
+        // usleep(1000);
     }
 
     close(fd);
